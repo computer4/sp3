@@ -1,0 +1,30 @@
+{
+  "name": "star-production",
+  "private": true,
+  "version": "1.0.0",
+  "description": "STAR PRODUCTION — website (index.html) and artist client portal backend",
+  "workspaces": [
+    "server"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w server",
+    "start": "npm run start -w server",
+    "start:prod": "npm run start:prod -w server",
+    "build": "npm run db:generate -w server",
+    "db:migrate": "npm run db:migrate -w server",
+    "db:deploy": "npm run db:deploy -w server",
+    "db:seed": "npm run db:seed -w server",
+    "db:studio": "npm run db:studio -w server",
+    "setup": "npm run setup -w server",
+    "test": "npm run test -w server"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "allowScripts": {
+    "@prisma/client@6.19.3": true,
+    "prisma@6.19.3": true,
+    "@prisma/engines@6.19.3": true,
+    "esbuild@0.28.2": true
+  }
+}

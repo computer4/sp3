@@ -1,0 +1,214 @@
+// STAR PRODUCTION — database schema
+//
+// SQLite for now (a single file, nothing to install). To move to PostgreSQL later:
+//   1. change `provider` below to "postgresql" and DATABASE_URL to your Postgres URL
+//   2. delete prisma/migrations and run `npm run db:migrate`
+// Status/role fields are plain strings; their allowed values live in src/lib/constants.js.
+// Amounts are whole rupees (Int).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  mobile       String
+  role         String   @default("CLIENT") // CLIENT | ADMIN (main admin: all client details, no payment confirmation) | PAYMENTS (side admin: payments + confirmation)
+  status       String   @default("ACTIVE") // ACTIVE | BLOCKED
+  emailVerifiedAt DateTime? // set when the client clicks the link in the verification email (or the admin confirms it)
+  referralCode  String?  @unique // this client's own code to share (created the first time it is needed)
+  rewardCredits Int      @default(0) // unused 10% rewards, earned when someone they referred paid
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  orders       Order[]
+  sessions     Session[]
+  resetTokens  PasswordResetToken[]
+  chatMessages ChatMessage[]
+  verifyTokens EmailVerificationToken[]
+}
+
+// Every email the server tried to send, so a failure is visible in the admin panel instead of vanishing.
+model EmailLog {
+  id        String   @id @default(cuid())
+  to        String
+  subject   String
+  status    String // SENT | FAILED
+  provider  String // smtp | brevo | console
+  error     String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+// One-time link sent by email after sign-up (only a hash of the token is stored).
+model EmailVerificationToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  userId    String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// Questions sent from the website chatbot that the FAQs don't cover. The admin reads them in the Messages tab.
+model ChatMessage {
+  id        String   @id @default(cuid())
+  userId    String? // set when the visitor was logged in
+  name      String // "" for guests
+  email     String // lower-case; where the team replies
+  message   String
+  sender    String   @default("CLIENT") // CLIENT (asked via chat/dashboard) | ADMIN (the team's reply) | SYSTEM (an account notice, e.g. password changed)
+  status    String   @default("NEW") // NEW | READ — "read" by the admin for CLIENT messages, by the client for ADMIN replies
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([email])
+  @@index([createdAt])
+}
+
+model Plan {
+  id            String   @id // e.g. "creator"
+  name          String
+  price         Int // what the customer pays (₹)
+  originalPrice Int? // shown struck through on the website
+  description   String
+  features      String // JSON array of strings
+  finalOutput   String
+  isFeatured    Boolean  @default(false)
+  sortOrder     Int      @default(0)
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  orders Order[]
+}
+
+model Order {
+  id            String   @id @default(cuid())
+  userId        String
+  planId        String
+  amount        Int // copied from the plan on the server — never from the browser
+  status        String   @default("PENDING") // money: PENDING | PAYMENT_PROCESSING | PAID | CANCELLED | REFUNDED
+  stage         String   @default("APPLIED") // project journey: APPLIED … COMPLETED (see src/lib/constants.js)
+  workState     String   @default("REVIEW") // admin work state: REVIEW | PROCESS | COMPLETED
+  listPrice       Int? // the plan price before any discount (null = no discount)
+  discountPercent Int      @default(0) // 0, 10 (referral / reward) or 15 (NEW-STAR)
+  discountCode    String? // the code the client entered (NEW-STAR / their friend's referral code) or "REWARD"
+  discountKind    String? // NEW_STAR | REFERRAL | REWARD
+  referrerId      String? // who gets a 10% reward once this order is paid (referral codes only)
+  rewardGiven     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan    Plan     @relation(fields: [planId], references: [id])
+  payment  Payment?
+  upgrades Upgrade[]
+
+  @@index([userId])
+}
+
+// A manual UPI-QR payment: the client pays the QR, then sends a screenshot (+ optional UTR) for the admin to verify.
+//   PENDING = sent, waiting for the admin · SUCCESS = admin confirmed · FAILED = admin rejected (note = reason)
+model Payment {
+  id               String    @id @default(cuid())
+  orderId          String    @unique
+  gateway          String // "upi-qr"
+  gatewayOrderId   String? // (unused, kept for old records)
+  gatewayPaymentId String? // (unused, kept for old records)
+  amount           Int // amount the client has to pay (₹)
+  status           String    @default("CREATED") // CREATED | PENDING | SUCCESS | FAILED | REFUNDED
+  note             String? // the admin's reason when a payment is rejected
+  reference        String? // UTR / transaction id typed by the client (optional)
+  submittedAt      DateTime? // when the client sent the screenshot
+  reviewedAt       DateTime? // when the admin confirmed / rejected it
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  order Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  proof PaymentProof?
+}
+
+// An upgrade of an already-paid plan: a second QR payment of the difference, verified by the admin like the first one.
+//   CREATED = chosen, not paid yet · PENDING = screenshot sent · SUCCESS = confirmed (the order switches plan) · FAILED = rejected · CANCELLED
+model Upgrade {
+  id          String    @id @default(cuid())
+  orderId     String
+  fromPlanId  String
+  toPlanId    String
+  amount      Int // the difference to pay (₹)
+  status      String    @default("CREATED")
+  note        String? // the admin's reason when rejected
+  reference   String? // UTR / transaction id typed by the client (optional)
+  submittedAt DateTime?
+  reviewedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  order Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  proof UpgradeProof?
+
+  @@index([orderId])
+}
+
+model UpgradeProof {
+  id        String   @id @default(cuid())
+  upgradeId String   @unique
+  data      String // image as a data URL
+  createdAt DateTime @default(now())
+
+  upgrade Upgrade @relation(fields: [upgradeId], references: [id], onDelete: Cascade)
+}
+
+// The screenshot, kept in its own table so payment lists stay light.
+model PaymentProof {
+  id        String   @id @default(cuid())
+  paymentId String   @unique
+  data      String // image as a data URL (png / jpeg / webp)
+  createdAt DateTime @default(now())
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+}
+
+// Login sessions (httpOnly cookie holds a random token; only its hash is stored here).
+model Session {
+  id         String   @id @default(cuid())
+  tokenHash  String   @unique
+  userId     String
+  expiresAt  DateTime
+  lastUsedAt DateTime @default(now())
+  userAgent  String?
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  userId    String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}

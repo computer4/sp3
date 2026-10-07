@@ -1,0 +1,36 @@
+{
+  "name": "@star/server",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "node --watch-path=src --watch-path=../data src/index.js",
+    "start": "node src/index.js",
+    "start:prod": "prisma migrate deploy && node prisma/seed.js && node src/index.js",
+    "db:generate": "prisma generate",
+    "db:migrate": "dotenv -e ../.env -- prisma migrate dev",
+    "db:deploy": "dotenv -e ../.env -- prisma migrate deploy",
+    "db:seed": "node prisma/seed.js",
+    "db:studio": "dotenv -e ../.env -- prisma studio",
+    "setup": "npm run db:deploy && npm run db:seed",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@node-rs/argon2": "^2.0.2",
+    "@prisma/client": "^6.16.0",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^17.2.0",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.1.0",
+    "helmet": "^8.1.0",
+    "nodemailer": "^7.0.6",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "dotenv-cli": "^10.0.0",
+    "prisma": "^6.16.0",
+    "supertest": "^7.1.4",
+    "vitest": "^3.2.4"
+  }
+}

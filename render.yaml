@@ -1,0 +1,47 @@
+# One-click deploy on Render (https://render.com): New → Blueprint → pick this repository.
+# Secrets marked `sync: false` are asked for in the dashboard — they are never stored in the repository.
+services:
+  - type: web
+    name: star-production
+    runtime: docker
+    plan: starter            # a paid plan: needed for the persistent disk below (and for outgoing email, see DEPLOY.md)
+    healthCheckPath: /api/health
+    disk:
+      name: star-data
+      mountPath: /data       # the SQLite database lives here and survives deploys
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: TRUST_PROXY
+        value: "1"
+      - key: DATABASE_URL
+        value: file:/data/star.db
+      - key: APP_URL
+        sync: false          # your public address, e.g. https://starproduction.in (or the https://….onrender.com one first)
+      - key: SESSION_SECRET
+        generateValue: true  # a long random secret, generated for you
+      - key: MAIN_ADMIN_EMAIL
+        sync: false          # main admin (all client details, cannot confirm payments)
+      - key: MAIN_ADMIN_PASSWORD
+        sync: false          # 10+ characters — the server refuses a shorter one in production
+      - key: SIDE_ADMIN_EMAIL
+        sync: false          # payments admin (confirms payments)
+      - key: SIDE_ADMIN_PASSWORD
+        sync: false
+      - key: BREVO_API_KEY
+        sync: false          # optional: send email by HTTPS API (use this if the host blocks SMTP)
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "465"
+      - key: SMTP_SECURE
+        value: "true"
+      - key: SMTP_USER
+        value: starprod.in@gmail.com
+      - key: EMAIL_API_KEY
+        sync: false          # the Gmail "App Password" (16 characters)
+      - key: EMAIL_FROM
+        value: STAR PRODUCTION <starprod.in@gmail.com>
+      - key: ADMIN_NOTIFY_EMAIL
+        value: starprod.in@gmail.com
